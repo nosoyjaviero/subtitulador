@@ -1,0 +1,6 @@
+pysrt
+transformers
+sentencepiece
+safetensors
+torch
+langdetect
