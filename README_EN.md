@@ -1,8 +1,8 @@
 # Multilingual Subtitle Translator
 
-A Python tool to translate `.srt` subtitle files between many languages using neural machine translation (Facebook M2M100). It ships with a simple Tkinter GUI so you don’t have to type file paths.
+A Python tool to translate `.srt` subtitle files between many languages using neural machine translation (Facebook M2M100). It now also supports creating `.srt` subtitles from a plain text `.txt` file (segmenting by sentence or by line). It ships with a simple Tkinter GUI so you don’t have to type file paths.
 
-- Pick the input `.srt` file.
+- Pick the input `.srt` or `.txt` file.
 - Auto-detect the source language ("auto" option).
 - Choose the target language from a broad list (en, es, de, fr, it, pt, ru, zh, ja, ko, and more).
 - Choose where to save the translated file.
@@ -42,7 +42,16 @@ For better performance on GPU, install the correct CUDA-enabled PyTorch (see htt
 ```pwsh
 python .\subtitulador.py
 ```
-A window will open. Select the `.srt`, keep `auto` for source language detection, choose the target language, and click "Translate".
+A window will open. Select the input file:
+
+- If it's `.srt`: it will translate and save another `.srt` in the target language.
+- If it's `.txt`: it will segment the text (by default by sentence) and generate a synthetic `.srt` with fixed duration segments (default 3.0 s each), translated to the target language.
+
+Then click "Translate".
+
+Extra parameters for TXT:
+- Segmentation mode: `oracion` (sentence; heuristic by punctuation) or `linea` (each line becomes a subtitle).
+- Duration per segment (s): fixed duration for each generated subtitle.
 
 ### Option 2: Windows .BAT
 Double-click `ejecutar_subtitulador.bat`:
@@ -58,10 +67,10 @@ auto, en, es, de, ru, fr, it, pt, nl, pl, sv, no, da, fi, tr, el, ro, cs, uk, hu
 `auto` is for source only (detect). If detection fails, simple heuristics are applied; as a last resort, English (`en`) is assumed.
 
 ## How it works
-1. GUI asks for an `.srt` file.
-2. If source = `auto`, up to ~50 non-empty lines are sampled and detected via `langdetect`.
+1. GUI asks for an `.srt` or `.txt` file.
+2. If source = `auto`, language is detected via `langdetect` (from SRT text or TXT content).
 3. The M2M100 model is loaded once and cached.
-4. Each line is translated by forcing the target language BOS token.
+4. SRT: each line is translated. TXT: the text is segmented (sentence/line), each segment is translated, and a synthetic SRT is assembled with consecutive timestamps.
 5. The new `.srt` is written to the chosen location.
 
 ## Troubleshooting
@@ -91,6 +100,7 @@ README_EN.md               # English docs
 - Text normalization options (capitalization, HTML tag cleanup).
 - More formats (e.g., WEBVTT `.vtt`).
 - Bulk translation of multiple files.
+ - Advanced segmentation rules (language-aware sentence tokenization with NLTK/spaCy).
 
 ## License
 This project uses models distributed by Facebook AI / HuggingFace under their respective licenses. Review model terms before commercial use.

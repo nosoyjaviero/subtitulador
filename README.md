@@ -1,8 +1,8 @@
 # Subtitulador Multilenguaje
 
-Herramienta en Python para traducir archivos de subtítulos `.srt` entre múltiples idiomas mediante modelos de traducción neuronal (Facebook M2M100). Incluye una interfaz gráfica simple (Tkinter) que permite:
+Herramienta en Python para traducir archivos de subtítulos `.srt` entre múltiples idiomas mediante modelos de traducción neuronal (Facebook M2M100). Ahora también permite crear subtítulos `.srt` a partir de un archivo de texto `.txt` (segmentando por oración o por línea). Incluye una interfaz gráfica simple (Tkinter) que permite:
 
-- Seleccionar el archivo `.srt` de entrada.
+- Seleccionar el archivo `.srt` o `.txt` de entrada.
 - Detectar automáticamente el idioma origen (opción `auto`).
 - Elegir el idioma destino entre una lista amplia (es, en, de, fr, it, pt, ru, zh, ja, ko, etc.).
 - Definir dónde guardar el archivo traducido.
@@ -42,7 +42,16 @@ Para mejor rendimiento en GPU instala PyTorch con soporte CUDA adecuado (ver htt
 ```bash
 python subtitulador.py
 ```
-Se abrirá la ventana. Selecciona el `.srt`, deja `auto` para detectar idioma origen y elige destino. Pulsa "Traducir".
+Se abrirá la ventana. Selecciona el archivo de entrada:
+
+- Si es `.srt`: se traducirá y guardará otro `.srt` con el idioma destino.
+- Si es `.txt`: se segmentará (por defecto por oración) y se generará un `.srt` con segmentos de duración fija (por defecto 3.0 s cada uno), ya traducidos al idioma destino.
+
+Pulsa "Traducir".
+
+Parámetros adicionales para TXT:
+- Modo segmentación: `oracion` (heurística por puntuación) o `linea` (cada línea del .txt es un subtítulo).
+- Duración por segmento (s): duración fija para cada subtítulo generado.
 
 ### Método 2: Archivo .BAT (Windows)
 Doble clic en `ejecutar_subtitulador.bat`:
@@ -70,6 +79,7 @@ auto, en, es, de, ru, fr, it, pt, nl, pl, sv, no, da, fi, tr, el, ro, cs, uk, hu
 - Opciones de normalización (capitalización, limpieza de tags HTML, etc.).
 - Soporte para otros formatos (WEBVTT `.vtt`).
 - Exportación masiva de múltiples archivos.
+ - Reglas avanzadas de segmentación de texto (tokenización por idioma con NLTK/spaCy).
 
 ## Estructura del proyecto
 ```
@@ -80,10 +90,10 @@ README.md              # Este documento.
 ```
 
 ## Flujo interno simplificado
-1. GUI solicita archivo `.srt`.
-2. Si origen = `auto`, se extraen hasta ~50 líneas y se detecta idioma con `langdetect`.
+1. GUI solicita archivo `.srt` o `.txt`.
+2. Si origen = `auto`, se detecta idioma con `langdetect` (a partir de líneas SRT o del propio texto TXT).
 3. Se carga el modelo M2M100 (una sola vez, cache global).
-4. Se traduce cada línea forzando el token BOS del idioma destino.
+4. SRT: se traduce cada línea; TXT: se segmenta el texto (oración/línea), se traduce cada segmento y se arma un SRT sintético con tiempos consecutivos.
 5. Se escribe el nuevo `.srt` en la ruta seleccionada.
 
 ## Problemas comunes
