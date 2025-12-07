@@ -12,18 +12,24 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Python no esta instalado.
     echo Por favor, instala Python 3.10+ desde https://python.org
+    echo Asegurate de marcar "Add Python to PATH" durante la instalacion.
+    echo.
     pause
     exit /b 1
 )
 
-echo Verificando dependencias e iniciando...
+REM El script se encarga de crear el venv y las dependencias automaticamente
+echo Iniciando Subtitulador...
+echo (La primera vez puede tardar en instalar dependencias)
 echo.
-python subtitulador_gui.py
+
+python "%~dp0subtitulador_gui.py"
 
 if errorlevel 1 (
     echo.
     echo [ERROR] Hubo un problema al ejecutar la aplicacion.
-    pause
+    echo Revisa que tengas Python 3.10+ instalado correctamente.
+    echo.
 )
 
 pause

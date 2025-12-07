@@ -9,13 +9,84 @@ import subprocess
 import sys
 import os
 
+# Obtener directorio del script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+VENV_DIR = os.path.join(SCRIPT_DIR, 'venv')
+
+def obtener_python_venv():
+    """Obtiene la ruta del ejecutable Python del venv."""
+    if sys.platform == 'win32':
+        return os.path.join(VENV_DIR, 'Scripts', 'python.exe')
+    return os.path.join(VENV_DIR, 'bin', 'python')
+
+def obtener_pip_venv():
+    """Obtiene la ruta del pip del venv."""
+    if sys.platform == 'win32':
+        return os.path.join(VENV_DIR, 'Scripts', 'pip.exe')
+    return os.path.join(VENV_DIR, 'bin', 'pip')
+
+def estamos_en_venv():
+    """Verifica si estamos ejecutando dentro del venv."""
+    return sys.prefix == VENV_DIR or sys.executable == obtener_python_venv()
+
+def crear_venv_si_no_existe():
+    """Crea el entorno virtual si no existe."""
+    if not os.path.exists(VENV_DIR):
+        print("📁 Creando entorno virtual...")
+        subprocess.check_call([sys.executable, '-m', 'venv', VENV_DIR])
+        print("✅ Entorno virtual creado\n")
+        return True
+    return False
+
+def detectar_gpu_nvidia():
+    """Detecta si hay una GPU NVIDIA disponible sin necesitar PyTorch."""
+    try:
+        # Intentar ejecutar nvidia-smi
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().split('\n')[0]
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass
+    return None
+
+def reiniciar_en_venv():
+    """Reinicia el script dentro del venv."""
+    python_venv = obtener_python_venv()
+    if os.path.exists(python_venv):
+        print(f"🔄 Reiniciando en entorno virtual...\n")
+        os.execv(python_venv, [python_venv] + sys.argv)
+    else:
+        print("❌ Error: No se encontró Python en el venv")
+        sys.exit(1)
+
 def verificar_e_instalar_dependencias():
-    """Verifica e instala las dependencias necesarias automáticamente."""
+    """Verifica e instala las dependencias necesarias en el venv."""
     
-    # Lista de paquetes requeridos con sus nombres de importación
+    # Primero, asegurarnos de que existe el venv
+    venv_nuevo = crear_venv_si_no_existe()
+    
+    # Si no estamos en el venv, reiniciar dentro de él
+    if not estamos_en_venv():
+        if venv_nuevo:
+            print("📦 Preparando entorno virtual por primera vez...")
+        reiniciar_en_venv()
+        return
+    
+    # Detectar GPU antes de instalar nada
+    gpu_nombre = detectar_gpu_nvidia()
+    hay_gpu = gpu_nombre is not None
+    
+    if hay_gpu:
+        print(f"🎮 GPU detectada: {gpu_nombre}")
+    else:
+        print("💻 No se detectó GPU NVIDIA, se usará CPU")
+    
+    # Lista de paquetes requeridos
     dependencias = [
         ('customtkinter', 'customtkinter'),
-        ('torch', 'torch'),
         ('transformers', 'transformers'),
         ('pysrt', 'pysrt'),
         ('langdetect', 'langdetect'),
@@ -23,9 +94,25 @@ def verificar_e_instalar_dependencias():
     ]
     
     faltantes = []
+    torch_instalado = False
+    torch_tiene_cuda = False
     
-    print("🔍 Verificando dependencias...")
+    print("\n🔍 Verificando dependencias...")
     
+    # Verificar torch primero
+    try:
+        import torch
+        torch_instalado = True
+        torch_tiene_cuda = torch.cuda.is_available()
+        if torch_tiene_cuda:
+            print(f"  ✅ torch (CUDA: {torch.cuda.get_device_name(0)})")
+        else:
+            print(f"  ✅ torch (CPU)")
+    except ImportError:
+        print(f"  ❌ torch - No instalado")
+        faltantes.append('torch')
+    
+    # Verificar otras dependencias
     for nombre_pip, nombre_import in dependencias:
         try:
             __import__(nombre_import)
@@ -34,53 +121,62 @@ def verificar_e_instalar_dependencias():
             print(f"  ❌ {nombre_pip} - No instalado")
             faltantes.append(nombre_pip)
     
-    # Verificar PyTorch con CUDA
-    try:
-        import torch
-        if not torch.cuda.is_available():
-            print("  ⚠️  PyTorch instalado pero sin soporte CUDA (GPU)")
-            # Preguntar si quiere reinstalar con CUDA
-            respuesta = input("\n¿Deseas instalar PyTorch con soporte GPU? (s/n): ").strip().lower()
-            if respuesta == 's':
-                print("\n📦 Instalando PyTorch con CUDA 12.4...")
-                subprocess.check_call([
-                    sys.executable, '-m', 'pip', 'install', '--upgrade',
-                    'torch', 'torchvision', 'torchaudio',
-                    '--index-url', 'https://download.pytorch.org/whl/cu124'
-                ])
-                print("✅ PyTorch con CUDA instalado")
-        else:
-            print(f"  ✅ PyTorch con CUDA ({torch.cuda.get_device_name(0)})")
-    except ImportError:
-        pass  # Se instalará abajo
+    pip_exe = obtener_pip_venv()
+    necesita_reinicio = False
     
+    # Instalar dependencias faltantes
     if faltantes:
-        print(f"\n📦 Instalando {len(faltantes)} paquete(s) faltante(s)...")
+        print(f"\n📦 Instalando {len(faltantes)} paquete(s) en el entorno virtual...")
         
         for paquete in faltantes:
             print(f"  Instalando {paquete}...")
             try:
                 if paquete == 'torch':
-                    # Instalar PyTorch con CUDA
-                    subprocess.check_call([
-                        sys.executable, '-m', 'pip', 'install',
-                        'torch', 'torchvision', 'torchaudio',
-                        '--index-url', 'https://download.pytorch.org/whl/cu124'
-                    ])
+                    if hay_gpu:
+                        # Instalar PyTorch con CUDA
+                        print("  (Con soporte GPU - esto puede tardar...)")
+                        subprocess.check_call([
+                            pip_exe, 'install',
+                            'torch', 'torchvision', 'torchaudio',
+                            '--index-url', 'https://download.pytorch.org/whl/cu124'
+                        ])
+                    else:
+                        # Instalar PyTorch solo CPU (más ligero)
+                        print("  (Solo CPU)")
+                        subprocess.check_call([
+                            pip_exe, 'install',
+                            'torch', 'torchvision', 'torchaudio',
+                            '--index-url', 'https://download.pytorch.org/whl/cpu'
+                        ])
                 else:
-                    subprocess.check_call([
-                        sys.executable, '-m', 'pip', 'install', paquete
-                    ])
-                print(f"  ✅ {paquete} instalado correctamente")
+                    subprocess.check_call([pip_exe, 'install', paquete])
+                print(f"  ✅ {paquete} instalado")
             except subprocess.CalledProcessError as e:
                 print(f"  ❌ Error instalando {paquete}: {e}")
+                input("\nPresiona Enter para salir...")
                 sys.exit(1)
         
-        print("\n✅ Todas las dependencias instaladas. Reiniciando...")
-        # Reiniciar el script
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        necesita_reinicio = True
     
-    print("✅ Todas las dependencias están instaladas\n")
+    # Si hay GPU pero torch no tiene CUDA, ofrecer reinstalar
+    if hay_gpu and torch_instalado and not torch_tiene_cuda:
+        print("\n⚠️  Tienes GPU pero PyTorch está instalado sin soporte CUDA")
+        respuesta = input("¿Deseas reinstalar PyTorch con soporte GPU? (s/n): ").strip().lower()
+        if respuesta == 's':
+            print("\n📦 Reinstalando PyTorch con CUDA 12.4...")
+            subprocess.check_call([
+                pip_exe, 'install', '--upgrade', '--force-reinstall',
+                'torch', 'torchvision', 'torchaudio',
+                '--index-url', 'https://download.pytorch.org/whl/cu124'
+            ])
+            necesita_reinicio = True
+    
+    if necesita_reinicio:
+        print("\n✅ Instalación completada. Reiniciando...")
+        reiniciar_en_venv()
+    
+    print("\n✅ Todas las dependencias están instaladas")
+    print(f"📂 Entorno virtual: {VENV_DIR}\n")
 
 # Verificar dependencias antes de importar
 verificar_e_instalar_dependencias()
@@ -201,42 +297,46 @@ class SubtituladorApp(ctk.CTk):
         dispositivo_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
         dispositivo_frame.pack(pady=(10, 0))
         
-        ctk.CTkLabel(
-            dispositivo_frame,
-            text="Procesador:",
-            font=ctk.CTkFont(size=12)
-        ).pack(side="left", padx=(0, 10))
-        
-        # Opciones de dispositivo
-        opciones_dispositivo = []
+        # Solo mostrar selector si hay GPU disponible
         if CUDA_DISPONIBLE:
-            opciones_dispositivo.append(f"🎮 GPU ({GPU_NOMBRE})")
-        opciones_dispositivo.append("💻 CPU")
-        
-        self.combo_dispositivo = ctk.CTkComboBox(
-            dispositivo_frame,
-            values=opciones_dispositivo,
-            width=280,
-            height=30,
-            font=ctk.CTkFont(size=12),
-            command=self.on_dispositivo_change
-        )
-        self.combo_dispositivo.pack(side="left")
-        
-        # Establecer valor por defecto
-        if CUDA_DISPONIBLE:
+            ctk.CTkLabel(
+                dispositivo_frame,
+                text="Procesador:",
+                font=ctk.CTkFont(size=12)
+            ).pack(side="left", padx=(0, 10))
+            
+            # Opciones de dispositivo (GPU y CPU)
+            opciones_dispositivo = [f"🎮 GPU ({GPU_NOMBRE})", "💻 CPU"]
+            
+            self.combo_dispositivo = ctk.CTkComboBox(
+                dispositivo_frame,
+                values=opciones_dispositivo,
+                width=300,
+                height=30,
+                font=ctk.CTkFont(size=12),
+                command=self.on_dispositivo_change
+            )
+            self.combo_dispositivo.pack(side="left")
             self.combo_dispositivo.set(f"🎮 GPU ({GPU_NOMBRE})")
+            
+            # Label de estado del dispositivo
+            self.label_dispositivo_estado = ctk.CTkLabel(
+                dispositivo_frame,
+                text="✅",
+                font=ctk.CTkFont(size=14),
+                text_color="#4CAF50"
+            )
+            self.label_dispositivo_estado.pack(side="left", padx=(10, 0))
         else:
-            self.combo_dispositivo.set("💻 CPU")
-        
-        # Label de estado del dispositivo
-        self.label_dispositivo_estado = ctk.CTkLabel(
-            dispositivo_frame,
-            text="✅",
-            font=ctk.CTkFont(size=14),
-            text_color="#4CAF50"
-        )
-        self.label_dispositivo_estado.pack(side="left", padx=(10, 0))
+            # Sin GPU, solo mostrar info
+            self.combo_dispositivo = None
+            self.label_dispositivo_estado = ctk.CTkLabel(
+                dispositivo_frame,
+                text="💻 Procesador: CPU",
+                font=ctk.CTkFont(size=12),
+                text_color="#FF9800"
+            )
+            self.label_dispositivo_estado.pack()
         
         # ========== SECCIÓN ARCHIVO ENTRADA ==========
         entrada_frame = ctk.CTkFrame(main_frame)
@@ -549,6 +649,11 @@ class SubtituladorApp(ctk.CTk):
     def on_dispositivo_change(self, *args):
         """Callback cuando cambia el dispositivo"""
         global _m2m_model, _m2m_tokenizer
+        
+        # Si no hay combo (solo CPU), no hacer nada
+        if self.combo_dispositivo is None:
+            return
+            
         seleccion = self.combo_dispositivo.get()
         
         if "GPU" in seleccion:
