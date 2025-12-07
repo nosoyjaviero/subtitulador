@@ -4,3 +4,4 @@ sentencepiece
 safetensors
 torch
 langdetect
+customtkinter
